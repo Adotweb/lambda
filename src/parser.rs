@@ -1,5 +1,7 @@
 use crate::TokenType;
 
+use std::collections::HashMap;
+
 #[derive(Debug, Clone)]
 pub enum Expression {
     Global {
@@ -37,14 +39,18 @@ impl Expression {
         }
     }
 
-
     pub fn get_display(&self) -> String {
-        match self{
+        match self {
             Self::Global { list } => {
-                format!("{}", list.iter().map(|x|{
-                    x.get_display()
-                }).collect::<Vec<String>>().join(";\n") + ";")
-            } 
+                format!(
+                    "{}",
+                    list.iter()
+                        .map(|x| { x.get_display() })
+                        .collect::<Vec<String>>()
+                        .join(";\n")
+                        + ";"
+                )
+            }
             Self::App { left, right } => {
                 format!("{} {}", left.get_display(), right.get_display())
             }
@@ -54,25 +60,25 @@ impl Expression {
             Self::Def { argument, body } => {
                 format!("{} -> {}", argument, body.get_display())
             }
-            Self::Unit(unit) => {
-                unit.to_string()
-            }
-            Self::None => {
-                "".to_string()
-            }
-            Self::Number(num) => {
-                num.to_string()
-            }
+            Self::Unit(unit) => unit.to_string(),
+            Self::None => "".to_string(),
+            Self::Number(num) => num.to_string(),
             Self::Directive { name } => {
                 format!("#{}", name)
             }
 
-            _ => String::new()
+            _ => String::new(),
         }
     }
 }
 
-pub fn parse(tokens: &Vec<TokenType>) -> Expression {
+//this thing keeps track and makes alpha conversions whenever it needs (more than one f is used in
+//a function)
+pub struct VarCounter(pub HashMap<String, usize>);
+
+
+
+pub fn parse(tokens: &Vec<TokenType>, vc : &mut VarCounter) -> Expression {
     let mut list: Vec<Expression> = vec![];
 
     let mut current_index = 0;
@@ -80,11 +86,9 @@ pub fn parse(tokens: &Vec<TokenType>) -> Expression {
     let mut expr_num = 0;
 
     while let Some(token) = tokens.get(current_index) {
-      
-        let expr = app(tokens, &mut current_index);
-       
-    
-        if let Expression::None = expr{
+        let expr = app(tokens, &mut current_index, vc);
+
+        if let Expression::None = expr {
             continue;
         }
 
@@ -94,7 +98,7 @@ pub fn parse(tokens: &Vec<TokenType>) -> Expression {
     Expression::Global { list }
 }
 
-pub fn app(tokens: &Vec<TokenType>, current_index: &mut usize) -> Expression {
+pub fn app(tokens: &Vec<TokenType>, current_index: &mut usize, vc : &mut VarCounter) -> Expression {
     let mut left_most = Expression::None;
 
     //this will *always* consume a token
@@ -110,10 +114,7 @@ pub fn app(tokens: &Vec<TokenType>, current_index: &mut usize) -> Expression {
                 *current_index += 1;
 
                 if let TokenType::IDENTIFIER(id) = tokens.get(*current_index).unwrap() {
-
                     *current_index += 1;
-    
-
 
                     let hash = Expression::Directive {
                         name: id.to_string(),
@@ -130,22 +131,22 @@ pub fn app(tokens: &Vec<TokenType>, current_index: &mut usize) -> Expression {
                     if let TokenType::ARROW = current_token {
                         *current_index += 1;
 
-                        let body = app(tokens, current_index);
+                        let body = app(tokens, current_index, vc);
 
-        
+
                         let func = Expression::Def {
                             argument: id.to_string(),
-                            body : Box::new(body)
-                        }; 
+                            body: Box::new(body),
+                        };
 
                         left_most = func.chain_app(left_most);
                         continue;
                     }
-                   
+
                     let this_unit = Expression::Unit(id.to_string());
 
                     left_most = this_unit.chain_app(left_most);
-                } 
+                }
             }
             TokenType::LPAREN => {
                 *current_index += 1;
@@ -154,9 +155,8 @@ pub fn app(tokens: &Vec<TokenType>, current_index: &mut usize) -> Expression {
                     panic!("groups cannot be empty!")
                 }
 
-                
                 let grp = Expression::Grp {
-                    inner: Box::new(app(tokens, current_index)),
+                    inner: Box::new(app(tokens, current_index, vc)),
                 };
 
                 *current_index += 1;
